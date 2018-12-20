@@ -2,7 +2,6 @@
 
 """
 An OpenRefine reconciliation service for the AAT API.
-
 This code is adapted from https://github.com/lawlesst/fast-reconcile
 """
 from flask import Flask, request, jsonify
@@ -27,11 +26,6 @@ app = Flask(__name__)
 PY3 = version_info > (3,)
 
 
-# Create base URLs/URIs
-api_base_url = 'http://vocabsservices.getty.edu/AATService.asmx/AATGetTermMatch?term='
-
-aat_base_url = 'http://vocab.getty.edu/aat/{0}'
-
 # Map the AAT query indexes to service types
 default_query = {
     "id": "AATGetTermMatch",
@@ -51,7 +45,7 @@ def make_uri(getty_id):
     """
     Prepare an AAT url from the ID returned by the API.
     """
-    getty_uri = aat_base_url.format(getty_id)
+    getty_uri = 'http://vocab.getty.edu/aat/{}'.format(getty_id)
     return getty_uri
 
 # Basic service metadata. There are a number of other documented options
@@ -80,34 +74,46 @@ def jsonpify(obj):
 
 
 def search(raw_query):
-    out = []
-    query = text.normalize(raw_query, PY3).strip()
-    query_type_meta = [i for i in full_query]
+    query_type_meta = full_query 
+    api_base_url = 'http://vocabsservices.getty.edu/AATService.asmx/AATGetTermMatch'
     #query_index = query_type_meta[0]['index']
-
     # Get the results 
+    #build the query
+    payload = {'term':raw_query.strip(), 'logop':'and', 'notes':''}
+    print(payload) 
+    out = []
     try:
-        if PY3:
-            url = api_base_url + urllib.parse.quote(query) + '&logop=and&notes='
-        else:
-            url = api_base_url + urllib.quote(query) + '&logop=and&notes='
-        app.logger.debug("AAT url is " + url)
-        resp = requests.get(url)
+        #send the request and the payload! 
+        resp = requests.get(api_base_url, params=payload)
+        print(resp.content)
+        print(resp.url)
+        app.logger.debug("AAT url is {}".format(resp.url))
         results = ET.fromstring(resp.content)
     except getopt.GetoptError as e:
         app.logger.warning(e)
-        return out
+        #This just returns an empty list if there's an error"
+        return out.append('Error, see logs')
+
     for child in results.iter('Preferred_Parent'):
         match = False
-        name = re.sub(r'\[.+?\]', '', child.text.split(',')[0]).strip() 
+        
+        # name = re.sub(r'\[.+?\]', '', child.text.split(',')[0]).strip() 
         # the termid is NOT the ID ! We have to find it in the first prefrered parent
-        id = re.search(r"\[(.+?)\]", child.text.split(',')[0]).group(1)
-        score = fuzz.token_sort_ratio(query, name)
+        # result_id = re.search(r"\[(.+?)\]", child.text.split(',')[0]).group(1)
+        # search and grab the groups
+        print(child.text) #debugging
+        regex = re.search(r"(?P<name>.*)\[(?P<result_id>.+?)\]", child.text.split(',')[0]) 
+        score = fuzz.token_sort_ratio(raw_query, regex['name'])
+        name = regex.group('name')
+        result_id = regex.group('result_id')
+
         if score > 95:
             match = True
-        app.logger.debug("Label is " + name + " Score is " + str(score) + " URI is " + id)
+
+        app.logger.debug("Label is {}. Score is {}. URI is {}".format(name, score, make_uri(result_id)))
+
         resource = {
-            "id": make_uri(id),
+            "id": make_uri(result_id),
             "name": name,
             "score": score,
             "match": match,
@@ -118,7 +124,6 @@ def search(raw_query):
     sorted_out = sorted(out, key=itemgetter('score'), reverse=True)
     # Refine only will handle top 10 matches.
     return sorted_out[:10]
-
 
 @app.route("/", methods=['POST', 'GET'])
 def reconcile():
