@@ -126,8 +126,8 @@ def search(raw_query):
                 "match": match,
                 "type": query_type_meta
             }
-        # Attach a successful search. If nothing exists carry on 
-        out.append(resource)
+            # Attach a successful search. If nothing exists carry on 
+            out.append(resource)
     # Sort this list containing prefterms by score
     sorted_out = sorted(out, key=itemgetter('score'), reverse=True)
     # Refine only will handle top 10 matches.
