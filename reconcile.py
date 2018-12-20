@@ -74,19 +74,29 @@ def jsonpify(obj):
 
 
 def search(raw_query):
+    """ 
+    This takes a term tries to query it against the api. It then parses the response and puts
+    it into a dictionary and appends it to a list 'out'. The final results are sorted based on
+    'score'.
+    >>> reconcile.search('Romantic')
+    [{'id': 'http://vocab.getty.edu/aat/300021476', 
+        'name': 'Neo-Romantic ', 
+        'score': 80, 
+        'match': False, 
+        'type': [{'id': 'AATGetTermMatch', 'name': 'AAT term', 'index': 'term'}]}, ... ]
+    
+    A "no match" should return an empty list:
+    >>> reconcile.search('Davidé Schober')
+    []
+    """
+    
     query_type_meta = full_query 
     api_base_url = 'http://vocabsservices.getty.edu/AATService.asmx/AATGetTermMatch'
-    #query_index = query_type_meta[0]['index']
-    # Get the results 
-    #build the query
     payload = {'term':raw_query.strip(), 'logop':'and', 'notes':''}
-    print(payload) 
     out = []
     try:
         #send the request and the payload! 
         resp = requests.get(api_base_url, params=payload)
-        print(resp.content)
-        print(resp.url)
         app.logger.debug("AAT url is {}".format(resp.url))
         results = ET.fromstring(resp.content)
     except getopt.GetoptError as e:
@@ -96,29 +106,27 @@ def search(raw_query):
 
     for child in results.iter('Preferred_Parent'):
         match = False
-        
-        # name = re.sub(r'\[.+?\]', '', child.text.split(',')[0]).strip() 
         # the termid is NOT the ID ! We have to find it in the first prefrered parent
-        # result_id = re.search(r"\[(.+?)\]", child.text.split(',')[0]).group(1)
         # search and grab the groups
-        print(child.text) #debugging
         regex = re.search(r"(?P<name>.*)\[(?P<result_id>.+?)\]", child.text.split(',')[0]) 
-        score = fuzz.token_sort_ratio(raw_query, regex['name'])
-        name = regex.group('name')
-        result_id = regex.group('result_id')
+        if regex:
+            score = fuzz.token_sort_ratio(raw_query, regex.group('name'))
+            name = regex.group('name')
+            result_id = regex.group('result_id')
 
-        if score > 95:
-            match = True
+            if score > 95:
+                match = True
 
-        app.logger.debug("Label is {}. Score is {}. URI is {}".format(name, score, make_uri(result_id)))
+            app.logger.debug("Label is {}. Score is {}. URI is {}".format(name, score, make_uri(result_id)))
 
-        resource = {
-            "id": make_uri(result_id),
-            "name": name,
-            "score": score,
-            "match": match,
-            "type": query_type_meta
-        }
+            resource = {
+                "id": make_uri(result_id),
+                "name": name,
+                "score": score,
+                "match": match,
+                "type": query_type_meta
+            }
+        # Attach a successful search. If nothing exists carry on 
         out.append(resource)
     # Sort this list containing prefterms by score
     sorted_out = sorted(out, key=itemgetter('score'), reverse=True)
